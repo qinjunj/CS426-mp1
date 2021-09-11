@@ -50,9 +50,73 @@ extern YYSTYPE cool_yylval;
  * Define names for regular expressions here.
  */
 
+/* Define start conditions. */
+%x STRING ESCAPE
+
 digit       [0-9]
+letter      [a-zA-Z]
+whitespace  [ \t\f\r\v]
+character   [^\n\"\\]
+escapeChar  [
 
 %%
+<INITIAL>\n    ++curr_lineno;
+<INITIAL>{whitespace}+   /* eat up whitespaces */
+
+<INITIAL>(?i:class)  {return 258;}
+<INITIAL>(?i:else)   {return 259;}
+<INITIAL>(?i:fi)     {return 260;}
+<INITIAL>(?i:if)     {return 261;}
+<INITIAL>(?i:in)     {return 262;}
+<INITIAL>(?i:inherits) {return 263;}
+<INITIAL>(?i:let)    {return 264;}
+<INITIAL>(?i:loop)   {return 265;}
+<INITIAL>(?i:pool)   {return 266;}
+<INITIAL>(?i:then)   {return 267;}
+<INITIAL>(?i:while)  {return 268;}
+<INITIAL>(?i:case)   {return 269;}
+<INITIAL>(?i:esac)   {return 270;}
+<INITIAL>(?i:of)     {return 271;}
+<INITIAL>(?i:=>)     {return 272;}
+<INITIAL>(?i:new)    {return 273;}
+<INITIAL>(?i:isvoid) {return 274;}
+<INITIAL>(?i:not)    {return 281;}
+<INITIAL>t(?i:rue)   {cool_yylval.boolean = 1; return 277;}
+<INITIAL>f(?i:alse)  {cool_yylval.boolean = 0; return 277;}
+
+
+<INITIAL>{digit}+      {  
+                cool_yylval.symbol = inttable.add_int(atoi(yytext)); 
+                return 276; 
+              }   
+
+<INITIAL>[a-z]({digit}|{letter}|_)*  { cool_yylval.symbol = idtable.add_string(yytext);
+                                  return 279;
+                                } 
+<INITIAL>[A-Z]({digit}|{letter}|_)*  { cool_yylval.symbol = idtable.add_string(yytext);
+                                  return 278;
+                                } 
+
+<INITIAL>\"    { 
+                 string_buf_ptr = string_buf;
+                 BEGIN(STRING);
+               }
+
+
+<STRING>\n    {
+                cool_yylval.err_msg = "Unterminated string constant";
+                return 283;
+              }
+
+<STRING>{character}*    {
+                          char *yptr = yytext;
+                          while (*yptr) 
+                              *string_buf_ptr++ = *yptr++;
+                        }
+
+<STRING>\\    BEGIN(ESCAPE);
+
+
 
  /*
   * Define regular expressions for the tokens of COOL here. Make sure, you
@@ -70,3 +134,5 @@ digit       [0-9]
   */
 
 %%
+
+
