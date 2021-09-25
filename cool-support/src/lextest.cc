@@ -83,6 +83,10 @@ int main(int argc, char** argv) {
 	    fclose(fin);
 	    optind++;
 	}
+    // dumpTable(); 
+    // idtable.print();
+    // inttable.print();
+    // stringtable.print();
 	exit(0);
 }
 
