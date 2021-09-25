@@ -33,8 +33,6 @@ extern FILE *fin; /* we read from this file */
 
 char string_buf[MAX_STR_CONST]; /* to assemble string constants */
 char *string_buf_ptr;
-int string_len; /* record string length */
-int comment_paran; /* record number of pairs of comment (* *) */
 
 extern int curr_lineno;
 
@@ -43,6 +41,11 @@ extern YYSTYPE cool_yylval;
 /*
  *  Add Your own definitions here
  */
+
+int string_len; /* record string length */
+int comment_paran; /* record number of open comments, for detecting unmatched comment marks */
+int containNull; /* record if there is NULL within a string */
+
 
 %}
 
@@ -58,12 +61,8 @@ extern YYSTYPE cool_yylval;
 digit       [0-9]
 letter      [a-zA-Z]
 whitespace  [ \t\f\r\v]
-character   [^\n\"\\]
-escapeChar  [btnf]
-nonEscapeChar [^btnf(\n)]
-insideComment [^\n<<EOF>>]
-insideCommentBlock [^(\(\*))((\*\))\n]
-
+/* characters that need to be escaped i.e. \c -> c */ 
+nonEscapeChar [^btnf\n] 
 
 %%
 <INITIAL>\n    ++curr_lineno;
@@ -90,42 +89,42 @@ insideCommentBlock [^(\(\*))((\*\))\n]
 <INITIAL>t(?i:rue)   {cool_yylval.boolean = 1; return BOOL_CONST;}
 <INITIAL>f(?i:alse)  {cool_yylval.boolean = 0; return BOOL_CONST;}
 
-<INITIAL>:  return 58;
-<INITIAL>=  return 61;
-<INITIAL>\(  return 40;
-<INITIAL>\)  return 41;
-<INITIAL>\{  return 123;
-<INITIAL>\}  return 125;
-<INITIAL>,  return 44;
-<INITIAL>\+   return 43;
-<INITIAL>-   return 45;
-<INITIAL>\*   return 42;
-<INITIAL>\/   return 47;
-<INITIAL>~   return 126;
-<INITIAL><   return 60;
-<INITIAL><-   return ASSIGN;
-<INITIAL><=   return LE;
-<INITIAL>\;    return 59;
-<INITIAL>\.   return 46;
-<INITIAL>,    return 44;
-<INITIAL>@    return yytext[0];
+<INITIAL>":"  return ':';
+<INITIAL>"="  return '=';
+<INITIAL>"("  return '(';
+<INITIAL>")"  return ')';
+<INITIAL>"{"  return '{';
+<INITIAL>"}"  return '}';
+<INITIAL>","  return ',';
+<INITIAL>"+"   return '+';
+<INITIAL>"-"   return '-';
+<INITIAL>"*"   return '*';
+<INITIAL>"/"   return '/';
+<INITIAL>"~"   return '~';
+<INITIAL>"<"   return '<';
+<INITIAL>"<-"   return ASSIGN;
+<INITIAL>"<="   return LE;
+<INITIAL>";"    return ';';
+<INITIAL>"."   return '.';
+<INITIAL>"@"    return '@';
    
 
 
-<INITIAL>{digit}+      {  
-                cool_yylval.symbol = inttable.add_int(atoi(yytext)); 
-                return INT_CONST; 
-              }   
+<INITIAL>{digit}+  {  
+                       cool_yylval.symbol = inttable.add_int(atoi(yytext)); 
+                       return INT_CONST; 
+                   }   
 
 <INITIAL>[a-z]({digit}|{letter}|_)*  { cool_yylval.symbol = idtable.add_string(yytext);
-                                  return OBJECTID;
-                                } 
-<INITIAL>[A-Z]({digit}|{letter}|_)*  { cool_yylval.symbol = idtable.add_string(yytext);
-                                  return TYPEID;
-                                } 
+                                       return OBJECTID;
+                                     } 
 
+<INITIAL>[A-Z]({digit}|{letter}|_)*  { cool_yylval.symbol = idtable.add_string(yytext);
+                                       return TYPEID;
+                                     } 
 <INITIAL>\"    { 
                  string_buf_ptr = string_buf;
+                 memset(string_buf, '\0', MAX_STR_CONST*sizeof(char));
                  BEGIN(STRING);
                  string_len = 0;
                }
@@ -137,14 +136,6 @@ insideCommentBlock [^(\(\*))((\*\))\n]
                 BEGIN(INITIAL);
                 return ERROR;
               }
-
-<STRING>{character}*    {
-                          char *yptr = yytext;
-                          while (*yptr) {
-                              *string_buf_ptr++ = *yptr++;
-                              string_len++;
-                          }
-                        }
 
 <STRING>\\n    { *string_buf_ptr++ = '\n'; string_len++; }
 <STRING>\\t    { *string_buf_ptr++ = '\t'; string_len++; }           
@@ -160,9 +151,16 @@ insideCommentBlock [^(\(\*))((\*\))\n]
                   BEGIN(INITIAL);
                   return ERROR;
                 }
+<STRING>"\000"    containNull = 1; 
 
-<STRING>\"  {
+<STRING>\"  { 
               *string_buf_ptr = '\0';
+              if (containNull == 1) {
+                  cool_yylval.error_msg = "String constant contains null";
+                  BEGIN(INITIAL);
+                  containNull = 0;
+                  return ERROR;
+              }
               if (string_len >= MAX_STR_CONST) {
                   cool_yylval.error_msg = "String constant too long";
                   BEGIN(INITIAL);
@@ -172,11 +170,20 @@ insideCommentBlock [^(\(\*))((\*\))\n]
               BEGIN(INITIAL);
               return STR_CONST;
             }
+
+<STRING>.            {
+                          char *yptr = yytext;
+                          while (*yptr) {
+                              *string_buf_ptr++ = *yptr++;
+                              string_len++;
+                          }
+                     }
+
 <INITIAL>--    BEGIN(COMMENT_LINE);
 
-<COMMENT_LINE>[\n<<EOF>>]  { BEGIN(INITIAL); ++curr_lineno; }
+<COMMENT_LINE>\n  { BEGIN(INITIAL); ++curr_lineno; }
 
-<COMMENT_LINE>{insideComment}* /* eat up comments */
+<COMMENT_LINE>. /* eat up comments */
  
 <INITIAL>\(\*    { BEGIN(COMMENT_BLOCK); comment_paran = 1; }
 
@@ -184,7 +191,7 @@ insideCommentBlock [^(\(\*))((\*\))\n]
 
 <COMMENT_BLOCK>\(\*    { ++comment_paran; }
 
-<COMMENT_BLOCK>\*\)    { 
+<COMMENT_BLOCK>\*\)  { 
                         --comment_paran; 
                         if (comment_paran < 0) {
                             cool_yylval.error_msg = "Unmatched *)";
@@ -193,6 +200,7 @@ insideCommentBlock [^(\(\*))((\*\))\n]
                             BEGIN(INITIAL);
                         }
                      } 
+
 <COMMENT_BLOCK>\n    { ++curr_lineno; }
 
 <COMMENT_BLOCK><<EOF>>    {
@@ -201,8 +209,9 @@ insideCommentBlock [^(\(\*))((\*\))\n]
                             return ERROR;
                           }
 
-<COMMENT_BLOCK>{insideCommentBlock}* /* eat up comments */
+<COMMENT_BLOCK>.  /* eat up comments */
 
+    /* anything that falls to this rule indicates an error */ 
 <INITIAL>.    { cool_yylval.error_msg = yytext; return ERROR; } 
 
  /*
