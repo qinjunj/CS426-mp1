@@ -21,7 +21,7 @@ Class C inherits a {
 
 (* error:  keyword inherits is misspelled *)
 Class D inherts A {
-};
+;
 
 (* error:  closing brace is missing *)
 Class E inherits A {
